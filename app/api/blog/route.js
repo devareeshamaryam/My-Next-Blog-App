@@ -1,15 +1,15 @@
-// File: app/api/admin/addProduct/route.js
+// File: app/api/admin/addBlog/route.js
 
-import { ConnectDB } from "@/lib/config/db";
-import BlogModel from "@/lib/models/blogmodel";  // ⬅️ CRITICAL: Must import
+import connectDB from "@/lib/config/db";
+import BlogModel from "@/lib/models/blogmodel";
 import { NextResponse } from "next/server";
-import { writeFile } from 'fs/promises';
+import { writeFile, unlink } from 'fs/promises';
 import path from 'path';
 
 // Connect to database when module loads
 const LoadDB = async () => {
     try {
-        await ConnectDB();
+        await connectDB();
         console.log("✅ Database connection initialized");
     } catch (error) {
         console.error("❌ Database connection failed:", error);
@@ -17,21 +17,45 @@ const LoadDB = async () => {
 }
 LoadDB();
 
-// GET handler - for testing
+// GET handler - fetch blogs
 export async function GET(request) {
     try {
-        await ConnectDB();
-        const blogs = await BlogModel.find().limit(5);
+        await connectDB();
+        
+        const blogId = request.nextUrl.searchParams.get("id");
+        
+        if (blogId) {
+            const blog = await BlogModel.findById(blogId);
+            
+            if (!blog) {
+                return NextResponse.json(
+                    { success: false, msg: "Blog not found" },
+                    { status: 404 }
+                );
+            }
+            
+            return NextResponse.json({ 
+                success: true, 
+                blog 
+            });
+        }
+        
+        // Fetch all blogs
+        const blogs = await BlogModel.find({}).sort({ date: -1 });
+        
         return NextResponse.json({ 
             success: true,
-            msg: "API working",
-            count: blogs.length
+            count: blogs.length,
+            blogs 
         });
+        
     } catch (error) {
+        console.error("❌ Error in GET:", error);
         return NextResponse.json({ 
             success: false, 
+            msg: "Failed to fetch blogs",
             error: error.message 
-        });
+        }, { status: 500 });
     }
 }
 
@@ -41,7 +65,7 @@ export async function POST(request) {
         console.log("🚀 POST request received");
         
         // Ensure DB is connected
-        await ConnectDB();
+        await connectDB();
         
         // Parse form data
         const formData = await request.formData();
@@ -56,7 +80,8 @@ export async function POST(request) {
             title, 
             description: description?.substring(0, 50) + '...', 
             category, 
-            author 
+            author,
+            imageType: image?.type 
         });
         
         // Validate required fields
@@ -66,6 +91,29 @@ export async function POST(request) {
                 { 
                     success: false, 
                     msg: "All fields are required (title, description, category, image)" 
+                }, 
+                { status: 400 }
+            );
+        }
+
+        // Validate image type
+        const validImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+        if (!validImageTypes.includes(image.type)) {
+            return NextResponse.json(
+                { 
+                    success: false, 
+                    msg: "Invalid image type. Please upload JPG, PNG, WEBP or GIF" 
+                }, 
+                { status: 400 }
+            );
+        }
+
+        // Validate image size (5MB max)
+        if (image.size > 5 * 1024 * 1024) {
+            return NextResponse.json(
+                { 
+                    success: false, 
+                    msg: "Image size must be less than 5MB" 
                 }, 
                 { status: 400 }
             );
@@ -82,10 +130,22 @@ export async function POST(request) {
         const filename = `${timestamp}_${cleanName}`;
         const filepath = path.join(process.cwd(), 'public', filename);
         
-        await writeFile(filepath, buffer);
-        const imgUrl = `/${filename}`;
+        try {
+            await writeFile(filepath, buffer);
+            console.log('✅ Image uploaded:', filename);
+        } catch (fileError) {
+            console.error("❌ File upload failed:", fileError);
+            return NextResponse.json(
+                { 
+                    success: false, 
+                    msg: "Failed to upload image",
+                    error: fileError.message 
+                }, 
+                { status: 500 }
+            );
+        }
         
-        console.log('✅ Image uploaded:', imgUrl);
+        const imgUrl = `/${filename}`;
         
         // Prepare blog data
         const blogData = {
@@ -94,7 +154,7 @@ export async function POST(request) {
             category,
             author: author?.trim() || 'Areesha Maryam',
             image: imgUrl,
-            authorImg: '/default-author.png',  // You can make this dynamic later
+            authorImg: '/default-author.png',
             date: new Date()
         };
         
@@ -105,17 +165,16 @@ export async function POST(request) {
         
         console.log('✅ Blog saved successfully!');
         console.log('📄 Blog ID:', savedBlog._id);
-        console.log('📊 Database:', BlogModel.db.name);
         
         return NextResponse.json({ 
             success: true,
             msg: "Blog Added Successfully",
             blogId: savedBlog._id,
             data: savedBlog
-        });
+        }, { status: 201 });
         
     } catch (error) {
-        console.error("❌ Error in POST /api/admin/addProduct:");
+        console.error("❌ Error in POST /api/admin/addBlog:");
         console.error("Error name:", error.name);
         console.error("Error message:", error.message);
         console.error("Full error:", error);
@@ -128,5 +187,61 @@ export async function POST(request) {
             }, 
             { status: 500 }
         );
+    }
+}
+
+// DELETE handler - delete blog
+export async function DELETE(request) {
+    try {
+        await connectDB();
+        
+        const id = request.nextUrl.searchParams.get('id');
+        
+        if (!id) {
+            return NextResponse.json(
+                { success: false, msg: "Blog ID is required" },
+                { status: 400 }
+            );
+        }
+        
+        // Find the blog to get image path
+        const blog = await BlogModel.findById(id);
+        
+        if (!blog) {
+            return NextResponse.json(
+                { success: false, msg: "Blog not found" },
+                { status: 404 }
+            );
+        }
+        
+        // Delete image file from public folder
+        if (blog.image) {
+            const imagePath = path.join(process.cwd(), 'public', blog.image);
+            try {
+                await unlink(imagePath);
+                console.log('✅ Image deleted:', blog.image);
+            } catch (fileError) {
+                console.warn('⚠️ Could not delete image file:', fileError.message);
+                // Continue with blog deletion even if image deletion fails
+            }
+        }
+        
+        // Delete blog from database
+        await BlogModel.findByIdAndDelete(id);
+        
+        console.log('✅ Blog deleted successfully:', id);
+        
+        return NextResponse.json({ 
+            success: true,
+            msg: "Blog Deleted Successfully"
+        });
+        
+    } catch (error) {
+        console.error("❌ Error in DELETE:", error);
+        return NextResponse.json({ 
+            success: false, 
+            msg: "Failed to delete blog",
+            error: error.message 
+        }, { status: 500 });
     }
 }

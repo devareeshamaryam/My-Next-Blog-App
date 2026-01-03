@@ -35,7 +35,15 @@ const AddProducts = () => {
             
             // Success ke baad form reset
             if (response.data.success) {
-                toast.success(response.data.msg)
+                toast.success(response.data.msg);
+                setImage(false);
+                setData({
+                            title: "",
+                            description: "",
+                            category: "Entertainment",  
+                            author: "Areesha Maryam"
+
+                })
             } else {
                 toast.error("Error")
             }
