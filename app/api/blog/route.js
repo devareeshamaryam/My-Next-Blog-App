@@ -10,9 +10,9 @@ import path from 'path';
 const LoadDB = async () => {
     try {
         await connectDB();
-        console.log("✅ Database connection initialized");
+        console.log(" Database connection initialized");
     } catch (error) {
-        console.error("❌ Database connection failed:", error);
+        console.error(" Database connection failed:", error);
     }
 }
 LoadDB();
@@ -219,9 +219,9 @@ export async function DELETE(request) {
             const imagePath = path.join(process.cwd(), 'public', blog.image);
             try {
                 await unlink(imagePath);
-                console.log('✅ Image deleted:', blog.image);
+                console.log(' Image deleted:', blog.image);
             } catch (fileError) {
-                console.warn('⚠️ Could not delete image file:', fileError.message);
+                console.warn(' Could not delete image file:', fileError.message);
                 // Continue with blog deletion even if image deletion fails
             }
         }
